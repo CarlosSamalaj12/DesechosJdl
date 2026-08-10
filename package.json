@@ -1,0 +1,40 @@
+{
+  "name": "desperdicios-jdl",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Sistema de control de desechos - Jardines del Lago",
+  "scripts": {
+    "predev": "node scripts/predev.cjs",
+    "dev": "concurrently -n BE,FE -c blue,green \"npm:server\" \"npm:vite\"",
+    "vite": "vite --host",
+    "server": "node backend/server.cjs",
+    "build": "vite build",
+    "preview": "vite preview",
+    "db:init": "node backend/db_init.cjs",
+    "lint": "echo \"(lint no configurado aún)\" && exit 0"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.5",
+    "date-fns": "^4.1.0",
+    "dotenv": "^16.4.7",
+    "express": "^4.22.1",
+    "jsonwebtoken": "^9.0.3",
+    "lucide-react": "^0.460.0",
+    "mariadb": "^3.4.0",
+    "morgan": "^1.10.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-hook-form": "^7.54.0",
+    "react-hot-toast": "^2.6.0",
+    "react-router-dom": "^7.15.1",
+    "recharts": "^2.15.0",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^5.0.0",
+    "concurrently": "^9.2.1",
+    "vite": "^6.0.0"
+  }
+}

@@ -1,0 +1,13 @@
+/* src/styles/index.css — base + variables + importa módulos */
+@import './base.css';
+@import url('../shared/Modal.css');
+@import url('../shared/Buttons.css');
+@import url('../shared/BottomNav.css');
+@import url('../modules/login/Login.css');
+@import url('../modules/operator/OperatorHome.css');
+@import url('../modules/operator/CategoryRecordModal.css');
+@import url('../modules/admin/AdminLists.css');
+@import url('../modules/admin/Analytics.css');
+@import url('../modules/admin/Plans.css');
+@import url('../modules/admin/Records.css');
+@import url('../modules/admin/HeadcountHistory.css');
