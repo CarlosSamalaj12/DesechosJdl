@@ -34,7 +34,11 @@ const normalize = (u) => u ? { ...u, is_active: Boolean(u.is_active) } : u;
 router.get('/', async (_req, res) => {
   const users = await query(
     `SELECT u.id, u.email, u.full_name, u.role, u.area_id, u.is_active, u.created_at,
-            a.name AS area_name, a.color AS area_color
+            a.name AS area_name, a.color AS area_color,
+            (SELECT COUNT(*) FROM waste_records r WHERE r.recorded_by = u.id) +
+            (SELECT COUNT(*) FROM daily_headcount h WHERE h.recorded_by = u.id) +
+            (SELECT COUNT(*) FROM reduction_plans p WHERE p.created_by = u.id OR p.responsible_id = u.id) +
+            (SELECT COUNT(*) FROM reduction_plan_steps s WHERE s.done_by = u.id) AS record_count
      FROM users u
      LEFT JOIN waste_areas a ON a.id = u.area_id
      ORDER BY u.role DESC, u.full_name ASC`,
@@ -122,7 +126,24 @@ router.delete('/:id', asyncHandler(async (req, res) => {
   if (Number(req.params.id) === req.user.sub) {
     return res.status(409).json({ error: 'No podés eliminar tu propio usuario' });
   }
-  const result = await query('DELETE FROM users WHERE id = ?', [req.params.id]);
+  const id = Number(req.params.id);
+  // Si el usuario tiene historial (registros, headcounts, planes), no se borra:
+  // hay que desactivarlo para conservar la integridad de los datos (FK).
+  const usage = await one(
+    `SELECT
+       (SELECT COUNT(*) FROM waste_records r WHERE r.recorded_by = ?) +
+       (SELECT COUNT(*) FROM daily_headcount h WHERE h.recorded_by = ?) +
+       (SELECT COUNT(*) FROM reduction_plans p WHERE p.created_by = ? OR p.responsible_id = ?) +
+       (SELECT COUNT(*) FROM reduction_plan_steps s WHERE s.done_by = ?) AS n`,
+    [id, id, id, id, id],
+  );
+  const n = Number(usage ? usage.n : 0);
+  if (n > 0) {
+    return res.status(409).json({
+      error: `El usuario tiene ${n} registros asociados. Desactivá el usuario en vez de eliminarlo (botón de encendido).`,
+    });
+  }
+  const result = await query('DELETE FROM users WHERE id = ?', [id]);
   if (!result.affectedRows) return res.status(404).json({ error: 'Usuario no encontrado' });
   res.json({ ok: true });
 }));

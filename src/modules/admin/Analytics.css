@@ -177,6 +177,38 @@
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
 }
 
+.metric-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--surface-2);
+  padding: 3px;
+  border-radius: 8px;
+}
+
+.metric-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.metric-btn.active {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
 .filter-toggles {
   display: flex;
   gap: 6px;
@@ -296,20 +328,131 @@
 }
 
 .delta {
-  position: absolute;
-  top: 10px;
-  right: 12px;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 2px;
   font-size: 10px;
   font-weight: 700;
   padding: 2px 6px;
   border-radius: 999px;
+  white-space: nowrap;
+  align-self: flex-start;
 }
 .delta.good { background: rgba(16, 185, 129, 0.15); color: #047857; }
 .delta.bad  { background: rgba(239, 68, 68, 0.15);  color: #b91c1c; }
 .delta.neutral { background: var(--surface-2); color: var(--text-muted); }
+
+/* ── Cobertura de hoy ────────────────────────── */
+.coverage-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  margin-top: 12px;
+}
+
+.coverage-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.coverage-card-header strong {
+  display: block;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.coverage-card-header small {
+  font-size: 11px;
+}
+
+.coverage-count {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(245, 158, 11, 0.15);
+  color: #b45309;
+  white-space: nowrap;
+}
+
+.coverage-count.ok {
+  background: rgba(16, 185, 129, 0.15);
+  color: #047857;
+}
+
+.coverage-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.coverage-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+
+.coverage-chip .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--coverage-color, #94a3b8);
+  flex-shrink: 0;
+}
+
+.coverage-chip svg {
+  color: #f59e0b;
+}
+
+.coverage-chip.done svg {
+  color: #10b981;
+}
+
+/* ── Meta diaria (tendencia) ──────────────────── */
+.goal-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.goal-field span {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.goal-field input {
+  width: 84px;
+  height: 32px;
+  padding: 0 8px;
+  font-size: 13px;
+  text-align: right;
+  background: var(--input-bg);
+  color: var(--text);
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+}
+
+.goal-field input:focus {
+  outline: none;
+  border-color: var(--warning, #f59e0b);
+}
 
 /* ── Charts ──────────────────────────────────── */
 .chart-card {

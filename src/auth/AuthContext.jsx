@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import toast from 'react-hot-toast';
 import { api, getToken, setToken } from '../api/client.js';
 
 const AuthContext = createContext(null);
@@ -37,6 +38,18 @@ export function AuthProvider({ children }) {
   const logout = useCallback(() => {
     setToken(null);
     setUser(null);
+  }, []);
+
+  // 401 global (token expirado): cerrar sesión y avisar.
+  // RequireAuth detecta user=null y redirige al login automáticamente.
+  useEffect(() => {
+    const onUnauthorized = () => {
+      setToken(null);
+      setUser(null);
+      toast.error('Tu sesión expiró. Volvé a iniciar sesión.');
+    };
+    window.addEventListener('jdl:unauthorized', onUnauthorized);
+    return () => window.removeEventListener('jdl:unauthorized', onUnauthorized);
   }, []);
 
   return (

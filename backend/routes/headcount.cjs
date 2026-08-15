@@ -3,6 +3,7 @@ const express = require('express');
 const { z } = require('zod');
 const { query, one } = require('../db.cjs');
 const { requireAuth, requireRole } = require('../auth.cjs');
+const { todayLocal, parseLocal, isoDay } = require('../utils.cjs');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -13,7 +14,6 @@ const headcountSchema = z.object({
 });
 
 const dateOnly = /^\d{4}-\d{2}-\d{2}$/;
-const today = () => new Date().toISOString().slice(0, 10);
 
 // GET /api/headcount?from=&to=
 router.get('/', async (req, res) => {
@@ -63,11 +63,11 @@ router.post('/bulk', requireRole('admin'), async (req, res) => {
   }
 
   // Generar todos los días del rango
-  const start = new Date(from);
-  const end = new Date(to);
+  const start = parseLocal(from);
+  const end = parseLocal(to);
   const days = [];
   for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-    days.push(d.toISOString().slice(0, 10));
+    days.push(isoDay(d));
   }
 
   let saved = 0;
@@ -90,11 +90,12 @@ router.post('/bulk', requireRole('admin'), async (req, res) => {
 
 // GET /api/headcount/today
 router.get('/today', async (_req, res) => {
+  const today = todayLocal();
   const row = await one(
     'SELECT * FROM daily_headcount WHERE record_date = ?',
-    [today()],
+    [today],
   );
-  res.json({ headcount: row, date: today() });
+  res.json({ headcount: row, date: today });
 });
 
 // GET /api/headcount/:date

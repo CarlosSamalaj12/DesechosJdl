@@ -15,19 +15,40 @@ async function request(method, path, body) {
   const token = getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  const res = await fetch(path, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  let res;
+  try {
+    res = await fetch(path, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch {
+    // Error de red (backend apagado, sin conexión, etc.)
+    const err = new Error('No se pudo conectar con el servidor. Verificá que el sistema esté encendido.');
+    err.status = 0;
+    err.network = true;
+    throw err;
+  }
 
   if (res.status === 204) return null;
 
   let data = null;
   try { data = await res.json(); } catch { /* no body */ }
 
+  // Token inválido o expirado (401) en endpoints protegidos:
+  // limpiamos la sesión y avisamos para redirigir al login.
+  // NO tocamos /api/auth/* porque ahí el 401 es un error normal
+  // (credenciales incorrectas, sesión inexistente) que maneja cada pantalla.
+  if (res.status === 401 && !path.startsWith('/api/auth/')) {
+    setToken(null);
+    window.dispatchEvent(new Event('jdl:unauthorized'));
+  }
+
   if (!res.ok) {
-    const message = (data && data.error) || `Error ${res.status}`;
+    // Para 5xx mostramos un mensaje genérico (evita filtrar detalles técnicos)
+    const message = res.status >= 500
+      ? 'Error del servidor. Intentá de nuevo en unos segundos.'
+      : ((data && data.error) || `Error ${res.status}`);
     const err = new Error(message);
     err.status = res.status;
     err.data = data;

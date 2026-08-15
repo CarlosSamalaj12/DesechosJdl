@@ -15,6 +15,19 @@ const empty = {
   sort_order: 0,
 };
 
+const ICON_OPTIONS = [
+  { name: 'leaf',           label: 'Orgánico' },
+  { name: 'package',        label: 'Plástico' },
+  { name: 'box',            label: 'Cartón' },
+  { name: 'wine',           label: 'Vidrio' },
+  { name: 'file-text',      label: 'Papel' },
+  { name: 'alert-triangle', label: 'Loza' },
+  { name: 'alert-octagon',  label: 'Cristalería' },
+  { name: 'trash-2',        label: 'General' },
+  { name: 'coffee',         label: 'Café' },
+  { name: 'flame',          label: 'Calor' },
+];
+
 export default function Categories() {
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -93,7 +106,7 @@ export default function Categories() {
             <li key={c.id} className="admin-card" style={{ borderLeft: `5px solid ${c.color}` }}>
               <div className="admin-card-main">
                 <strong>{c.name}</strong>
-                <small className="muted">{c.icon}</small>
+                <small className="muted">Icono: {c.icon || 'sin icono'}</small>
                 {!c.is_active && <small className="badge-off">inactiva</small>}
               </div>
               <div className="admin-card-actions">
@@ -148,12 +161,19 @@ export default function Categories() {
             </label>
           </div>
           <label className="field">
-            <span>Icono (nombre Lucide)</span>
-            <input
-              value={form.icon}
-              onChange={(e) => setForm({ ...form, icon: e.target.value })}
-              placeholder="leaf, package, box, wine, file-text…"
-            />
+            <span>Icono</span>
+            <div className="icon-grid">
+              {ICON_OPTIONS.map((ic) => (
+                <button
+                  key={ic.name}
+                  type="button"
+                  className={`icon-pick${form.icon === ic.name ? ' selected' : ''}`}
+                  onClick={() => setForm({ ...form, icon: ic.name })}
+                >
+                  {ic.label}
+                </button>
+              ))}
+            </div>
           </label>
           <label className="checkbox">
             <input

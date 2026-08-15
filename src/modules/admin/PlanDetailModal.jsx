@@ -5,7 +5,7 @@ import toast from 'react-hot-toast';
 import { api } from '../../api/client.js';
 import Modal from '../../shared/Modal.jsx';
 import { BtnDanger, BtnPrimary, BtnGhost, BtnSecondary } from '../../shared/Buttons.jsx';
-import { fmtDate, fmtDateShort } from '../../utils/format.js';
+import { fmtDate, fmtDateShort, fmtNumber } from '../../utils/format.js';
 import PlanFormModal from './PlanFormModal.jsx';
 
 const STATUS_META = {
@@ -17,6 +17,7 @@ const STATUS_META = {
 
 export default function PlanDetailModal({ planId, onClose, onChanged }) {
   const [plan, setPlan] = useState(null);
+  const [impact, setImpact] = useState(null);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
   const [stepInput, setStepInput] = useState('');
@@ -25,8 +26,12 @@ export default function PlanDetailModal({ planId, onClose, onChanged }) {
   async function load() {
     setLoading(true);
     try {
-      const { plan: p } = await api.get(`/api/plans/${planId}`);
-      setPlan(p);
+      const [planRes, impactRes] = await Promise.all([
+        api.get(`/api/plans/${planId}`),
+        api.get(`/api/plans/${planId}/impact`).catch(() => null),
+      ]);
+      setPlan(planRes.plan);
+      setImpact(impactRes);
     } catch (err) {
       toast.error(err.message);
       onClose();
@@ -138,6 +143,47 @@ export default function PlanDetailModal({ planId, onClose, onChanged }) {
               </div>
               <strong>{pct}%</strong>
               <span className="muted">({done}/{total})</span>
+            </div>
+          )}
+
+          {impact && (
+            <div className="plan-impact">
+              <h3>Meta vs realidad</h3>
+              <div className="impact-grid">
+                <div className="impact-stat">
+                  <span>Antes del plan</span>
+                  <strong>{fmtNumber(impact.before.avg_pounds, 1)} <small>lb/día</small></strong>
+                </div>
+                <div className="impact-stat current">
+                  <span>Durante el plan</span>
+                  <strong>{fmtNumber(impact.during.avg_pounds, 1)} <small>lb/día</small></strong>
+                </div>
+                {impact.after && (
+                  <div className="impact-stat">
+                    <span>Después</span>
+                    <strong>{fmtNumber(impact.after.avg_pounds, 1)} <small>lb/día</small></strong>
+                  </div>
+                )}
+              </div>
+
+              {impact.change_pct == null ? (
+                <p className="impact-note">Sin datos del período anterior para comparar.</p>
+              ) : (
+                <div className={`impact-result ${impact.change_pct <= 0 ? 'good' : 'bad'}`}>
+                  <strong>
+                    {impact.change_pct <= 0 ? '▼' : '▲'} {fmtNumber(Math.abs(impact.change_pct), 1)}%
+                  </strong>
+                  <span>
+                    {impact.change_pct <= 0 ? 'de reducción' : 'de aumento'} durante el plan
+                    {impact.target_pct != null && <> · meta: -{fmtNumber(impact.target_pct, 0)}%</>}
+                  </span>
+                  {impact.met !== null && impact.met !== undefined && (
+                    <span className={`impact-met ${impact.met ? 'met' : 'no'}`}>
+                      {impact.met ? '✓ Meta cumplida' : '✗ Meta no alcanzada'}
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
           )}
 

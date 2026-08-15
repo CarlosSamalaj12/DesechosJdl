@@ -12,6 +12,7 @@ import Records from './modules/admin/Records.jsx';
 import AppLayout from './shared/AppLayout.jsx';
 import RequireAuth from './shared/RequireAuth.jsx';
 import RequireRole from './shared/RequireRole.jsx';
+import NotFound from './shared/NotFound.jsx';
 
 const operatorNav = [
   { to: '/operator', end: true, icon: HomeIcon, label: 'Hoy' },
@@ -77,7 +78,7 @@ export default function App() {
       </Route>
 
       <Route path="/" element={<Navigate to="/operator" replace />} />
-      <Route path="*" element={<Navigate to="/operator" replace />} />
+      <Route path="*" element={<NotFound />} />
     </Routes>
   );
 }

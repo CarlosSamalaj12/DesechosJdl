@@ -7,7 +7,18 @@ import Modal from '../../shared/Modal.jsx';
 import { BtnPrimary, BtnSecondary, BtnDanger, BtnGhost } from '../../shared/Buttons.jsx';
 import './AdminLists.css';
 
-const ICON_OPTIONS = ['utensils', 'chef-hat', 'wine', 'coffee', 'hotel', 'trash-2', 'package', 'droplets', 'flame', 'sandwich'];
+const ICON_OPTIONS = [
+  { name: 'utensils',    label: 'Restaurante' },
+  { name: 'chef-hat',    label: 'Cocina' },
+  { name: 'wine',        label: 'Bar' },
+  { name: 'coffee',      label: 'Cafetería' },
+  { name: 'hotel',       label: 'Hotel' },
+  { name: 'trash-2',     label: 'General' },
+  { name: 'package',     label: 'Empaque' },
+  { name: 'droplets',    label: 'Líquidos' },
+  { name: 'flame',       label: 'Calor' },
+  { name: 'sandwich',    label: 'Comida' },
+];
 
 const empty = {
   name: '',
@@ -173,12 +184,12 @@ export default function Areas() {
             <div className="icon-grid">
               {ICON_OPTIONS.map((ic) => (
                 <button
-                  key={ic}
+                  key={ic.name}
                   type="button"
-                  className={`icon-pick${form.icon === ic ? ' selected' : ''}`}
-                  onClick={() => setForm({ ...form, icon: ic })}
+                  className={`icon-pick${form.icon === ic.name ? ' selected' : ''}`}
+                  onClick={() => setForm({ ...form, icon: ic.name })}
                 >
-                  {ic}
+                  {ic.label}
                 </button>
               ))}
             </div>

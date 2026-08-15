@@ -287,3 +287,94 @@
 .checklist-add button {
   flex-shrink: 0;
 }
+
+/* ── Meta vs realidad (impacto del plan) ──────── */
+.plan-impact {
+  margin-top: 12px;
+  padding: 12px;
+  background: var(--surface-2);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.plan-impact h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text-muted);
+}
+
+.impact-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.impact-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.impact-stat span {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.impact-stat strong {
+  font-size: 15px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.impact-stat strong small {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.impact-stat.current {
+  border-color: var(--primary);
+}
+
+.impact-result {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+.impact-result.good {
+  background: rgba(16, 185, 129, 0.12);
+  color: #047857;
+}
+
+.impact-result.bad {
+  background: rgba(239, 68, 68, 0.12);
+  color: #b91c1c;
+}
+
+.impact-result .impact-met {
+  margin-left: auto;
+  font-weight: 700;
+}
+
+.impact-result .impact-met.met { color: #047857; }
+.impact-result .impact-met.no  { color: #b91c1c; }
+
+.impact-note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}

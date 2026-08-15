@@ -3,6 +3,7 @@ const express = require('express');
 const { z } = require('zod');
 const { query, one } = require('../db.cjs');
 const { requireAuth, requireRole } = require('../auth.cjs');
+const { todayLocal, isoDay, addDays, parseLocal } = require('../utils.cjs');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -61,6 +62,7 @@ router.get('/', async (req, res) => {
 });
 
 router.get('/active', async (_req, res) => {
+  const today = todayLocal();
   const plans = await query(
     `SELECT p.*,
             a.name AS area_name, a.color AS area_color,
@@ -72,8 +74,9 @@ router.get('/active', async (_req, res) => {
      LEFT JOIN waste_areas a        ON a.id = p.area_id
      LEFT JOIN waste_categories c   ON c.id = p.category_id
      LEFT JOIN users r              ON r.id = p.responsible_id
-     WHERE p.status = 'active' AND p.start_date <= CURDATE() AND p.end_date >= CURDATE()
+     WHERE p.status = 'active' AND p.start_date <= ? AND p.end_date >= ?
      ORDER BY p.start_date DESC`,
+    [today, today],
   );
   res.json({ plans });
 });
@@ -161,6 +164,80 @@ router.delete('/:id', requireRole('admin'), async (req, res) => {
   const result = await query('DELETE FROM reduction_plans WHERE id = ?', [req.params.id]);
   if (!result.affectedRows) return res.status(404).json({ error: 'Plan no encontrado' });
   res.json({ ok: true });
+});
+
+// ── Meta vs realidad ────────────────────────────
+// Promedio de libras/día (y lb/persona) de un período, respetando
+// el área y la categoría del plan.
+async function periodStats(plan, from, to) {
+  const params = [from, to];
+  let where = 'r.record_date BETWEEN ? AND ?';
+  if (plan.area_id)     { where += ' AND r.area_id = ?';     params.push(plan.area_id); }
+  if (plan.category_id) { where += ' AND r.category_id = ?'; params.push(plan.category_id); }
+  const rec = await one(
+    `SELECT COALESCE(SUM(r.pounds), 0) AS pounds
+     FROM waste_records r WHERE ${where}`,
+    params,
+  );
+  const hc = await one(
+    'SELECT COALESCE(SUM(people_count), 0) AS people FROM daily_headcount WHERE record_date BETWEEN ? AND ?',
+    [from, to],
+  );
+  const days = Math.round((parseLocal(to) - parseLocal(from)) / 86400000) + 1;
+  const people = Number(hc.people || 0);
+  const pounds = Number(rec.pounds || 0);
+  return {
+    from, to, days,
+    pounds,
+    avg_pounds: days > 0 ? pounds / days : 0,
+    people,
+    avg_lb_persona: people > 0 ? pounds / people : 0,
+  };
+}
+
+// GET /api/plans/:id/impact
+// Compara libras/día antes vs durante (y después si ya terminó) y
+// lo contrasta con la meta de reducción (target_pct).
+router.get('/:id/impact', async (req, res) => {
+  const plan = await one('SELECT * FROM reduction_plans WHERE id = ?', [req.params.id]);
+  if (!plan) return res.status(404).json({ error: 'Plan no encontrado' });
+
+  const today = todayLocal();
+  // Para planes activos, el período "durante" va hasta hoy (no hasta el final,
+  // que todavía no pasó). "Antes" usa la misma cantidad de días para comparar igual.
+  const duringTo = today > plan.end_date ? plan.end_date : today;
+  const duringDays = Math.round((parseLocal(duringTo) - parseLocal(plan.start_date)) / 86400000) + 1;
+  const before = await periodStats(
+    plan,
+    isoDay(addDays(parseLocal(plan.start_date), -duringDays)),
+    isoDay(addDays(parseLocal(plan.start_date), -1)),
+  );
+  const during = await periodStats(plan, plan.start_date, duringTo);
+
+  const ended = today > plan.end_date;
+  const after = ended
+    ? await periodStats(plan, isoDay(addDays(parseLocal(plan.end_date), 1)), today)
+    : null;
+
+  const changePct = before.avg_pounds > 0
+    ? ((during.avg_pounds - before.avg_pounds) / before.avg_pounds) * 100
+    : null;
+  const changePctPersona = before.avg_lb_persona > 0
+    ? ((during.avg_lb_persona - before.avg_lb_persona) / before.avg_lb_persona) * 100
+    : null;
+  const targetPct = plan.target_pct != null ? Number(plan.target_pct) : null;
+  const met = targetPct != null && changePct != null ? changePct <= -targetPct : null;
+
+  res.json({
+    plan_id: plan.id,
+    before,
+    during,
+    after,
+    change_pct: changePct,
+    change_pct_persona: changePctPersona,
+    target_pct: targetPct,
+    met,
+  });
 });
 
 // ── Pasos (cualquier user puede marcar; solo admin crea/borra) ──

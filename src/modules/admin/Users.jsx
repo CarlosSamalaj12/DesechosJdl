@@ -100,7 +100,7 @@ export default function Users() {
   }
 
   async function remove(u) {
-    if (!confirm(`¿Eliminar a "${u.full_name}"?`)) return;
+    if (!confirm(`¿Eliminar a "${u.full_name}"? No tiene registros, así que se borra definitivamente.`)) return;
     try {
       await api.del(`/api/users/${u.id}`);
       toast.success('Usuario eliminado');
@@ -140,7 +140,9 @@ export default function Users() {
                 </strong>
                 <small className="muted">{u.email}</small>
                 <small className="muted">
-                  <span className={`role-pill role-${u.role}`}>{u.role}</span>
+                  <span className={`role-pill role-${u.role}`}>
+                    {u.role === 'admin' ? 'Administrador' : 'Operador'}
+                  </span>
                   {u.role === 'operator' && (
                     u.area_name
                       ? <> → <strong style={{ color: 'var(--text)' }}>{u.area_name}</strong></>
@@ -154,8 +156,8 @@ export default function Users() {
                   <Power size={16} />
                 </button>
                 <button className="icon-btn" onClick={() => openEdit(u)} title="Editar"><Edit2 size={16} /></button>
-                {u.id !== me?.id && (
-                  <button className="icon-btn icon-btn-danger" onClick={() => remove(u)} title="Eliminar"><Trash2 size={16} /></button>
+                {u.id !== me?.id && !u.record_count && (
+                  <button className="icon-btn icon-btn-danger" onClick={() => remove(u)} title="Eliminar (sin historial)"><Trash2 size={16} /></button>
                 )}
               </div>
             </li>

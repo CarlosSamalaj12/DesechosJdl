@@ -3,17 +3,18 @@ import { useEffect, useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import {
   TrendingUp, TrendingDown, Minus, Users, Scale, CalendarDays,
-  AlertCircle, BarChart3, Filter, X, Target, ChevronRight, Download, Save, Check,
+  AlertCircle, BarChart3, Filter, X, Target, ChevronRight, FileSpreadsheet, Save, Check,
   Layers, Tag, UserCog, ArrowRight,
 } from 'lucide-react';
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid,
-  PieChart, Pie, Cell, BarChart, Bar, Legend,
+  PieChart, Pie, Cell, BarChart, Bar, Legend, LabelList, ReferenceLine,
 } from 'recharts';
 import toast from 'react-hot-toast';
 import { api } from '../../api/client.js';
 import { getToken } from '../../api/client.js';
 import { fmtNumber, fmtDateShort, todayStr, fmtDate } from '../../utils/format.js';
+import CheckboxMultiSelect from '../../shared/CheckboxMultiSelect.jsx';
 import { useNavigate } from 'react-router-dom';
 import { useDarkMode } from '../../hooks/useDarkMode.js';
 import './Analytics.css';
@@ -23,6 +24,8 @@ const RANGES = [
   { id: '30', label: '30 días', days: 30 },
   { id: '90', label: '90 días', days: 90 },
 ];
+
+const sharePct = (part, total) => (total > 0 ? (part / total) * 100 : 0);
 
 function DeltaBadge({ value, suffix = '%', inverse = false }) {
   if (value == null || isNaN(value) || value === 0) {
@@ -47,41 +50,70 @@ function KpiCard({ icon: Icon, label, value, sub, delta, deltaInverse, accent })
         <span className="kpi-label">{label}</span>
         <strong className="kpi-value">{value}</strong>
         {sub && <small className="kpi-sub">{sub}</small>}
+        {delta !== undefined && (
+          <DeltaBadge value={delta} inverse={deltaInverse} />
+        )}
       </div>
-      {delta !== undefined && (
-        <DeltaBadge value={delta} inverse={deltaInverse} />
-      )}
     </div>
   );
 }
 
 // Tooltip personalizado para los charts (mobile-friendly, fondo sólido)
-function ChartTooltip({ active, payload, label, valueFmt = (v) => v }) {
+// withPct agrega el porcentaje (p.payload.pct) junto al valor, si existe
+function ChartTooltip({ active, payload, label, valueFmt = (v) => v, withPct = false }) {
   if (!active || !payload?.length) return null;
   return (
     <div className="chart-tooltip">
       <div className="chart-tooltip-label">{label}</div>
-      {payload.map((p, i) => (
-        <div key={i} className="chart-tooltip-row" style={{ color: p.color || p.fill }}>
-          <span className="dot" style={{ background: p.color || p.fill }} />
-          <span>{p.name}:</span>
-          <strong>{valueFmt(p.value)}</strong>
-        </div>
-      ))}
+      {payload.map((p, i) => {
+        const pct = withPct ? p.payload?.pct : undefined;
+        return (
+          <div key={i} className="chart-tooltip-row" style={{ color: p.color || p.fill }}>
+            <span className="dot" style={{ background: p.color || p.fill }} />
+            <span>{p.name}:</span>
+            <strong>{valueFmt(p.value)}{pct != null ? ` · ${fmtNumber(pct, 1)}%` : ''}</strong>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// Tooltip del chart de áreas: una sola fila con libras + % del total (según métrica)
+function AreaTooltip({ active, payload, label, metric = 'lb' }) {
+  if (!active || !payload?.length) return null;
+  const row = payload[0]?.payload;
+  if (!row) return null;
+  return (
+    <div className="chart-tooltip">
+      <div className="chart-tooltip-label">{label}</div>
+      <div className="chart-tooltip-row" style={{ color: row.color }}>
+        <span className="dot" style={{ background: row.color }} />
+        <span>{row.name}:</span>
+        <strong>
+          {metric === 'lb'
+            ? `${fmtNumber(row.pounds, 1)} lb · ${fmtNumber(row.pct, 1)}% del total`
+            : `${fmtNumber(row.pct, 1)}% del total`}
+        </strong>
+      </div>
     </div>
   );
 }
 
 export default function Analytics() {
   const [rangeId, setRangeId] = useState('30');
-  const [areaId, setAreaId] = useState('');
-  const [categoryId, setCategoryId] = useState('');
+  const [metric, setMetric] = useState('lb'); // 'lb' | 'pct'
+  const [dailyGoal, setDailyGoal] = useState(() => localStorage.getItem('jdl_daily_goal') || '');
+  const [areaIds, setAreaIds] = useState([]);
+  const [categoryIds, setCategoryIds] = useState([]);
   const [areas, setAreas] = useState([]);
   const [categories, setCategories] = useState([]);
   const [summary, setSummary] = useState(null);
   const [trend, setTrend] = useState([]);
   const [byArea, setByArea] = useState([]);
   const [byCategory, setByCategory] = useState([]);
+  const [coverage, setCoverage] = useState([]);
+  const [coverageDate, setCoverageDate] = useState(null);
   const [activePlans, setActivePlans] = useState([]);
   const [loading, setLoading] = useState(true);
   const [headcountToday, setHeadcountToday] = useState(null);
@@ -95,6 +127,7 @@ export default function Analytics() {
     text:   dark ? '#9ca3af' : '#6b7280',
     line:   '#10b981',
     line2:  '#3b82f6',
+    bar2:   dark ? '#4b5563' : '#cbd5e1',
   };
 
   async function loadHeadcount() {
@@ -121,11 +154,11 @@ export default function Analytics() {
     }
   }
 
-  async function exportCsv() {
+  async function exportReport() {
     const p = new URLSearchParams({ days });
-    if (areaId) p.set('area_id', areaId);
-    if (categoryId) p.set('category_id', categoryId);
-    const res = await fetch(`/api/records/export/csv?${p}`, {
+    areaIds.forEach((id) => p.append('area_id', String(id)));
+    categoryIds.forEach((id) => p.append('category_id', String(id)));
+    const res = await fetch(`/api/records/export/report?${p}`, {
       headers: { Authorization: `Bearer ${getToken()}` },
     });
     if (!res.ok) { toast.error('Error al exportar'); return; }
@@ -133,26 +166,39 @@ export default function Analytics() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `desperdicios_${new Date().toISOString().slice(0,10)}.csv`;
+    a.download = `reporte_desperdicios_${new Date().toISOString().slice(0,10)}.xls`;
     document.body.appendChild(a);
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
-    toast.success('CSV descargado');
+    toast.success('Reporte Excel descargado');
   }
 
   const days = RANGES.find((r) => r.id === rangeId)?.days || 30;
+  // Datos con porcentaje del total para los charts de distribución
+  const catData = useMemo(() => byCategory.filter((c) => c.pounds > 0), [byCategory]);
+  const areaTotal = useMemo(() => byArea.reduce((s, a) => s + a.pounds, 0), [byArea]);
+  const areaData = useMemo(
+    () => byArea.map((a) => ({ ...a, pct: areaTotal > 0 ? (a.pounds / areaTotal) * 100 : 0 })),
+    [byArea, areaTotal],
+  );
+  // % del total por día para la tendencia
+  const trendTotal = useMemo(() => trend.reduce((s, d) => s + d.pounds, 0), [trend]);
+  const trendData = useMemo(
+    () => trend.map((d) => ({ ...d, pct_total: trendTotal > 0 ? (d.pounds / trendTotal) * 100 : 0 })),
+    [trend, trendTotal],
+  );
   const queryStr = useMemo(() => {
     const p = new URLSearchParams({ days });
-    if (areaId) p.set('area_id', areaId);
-    if (categoryId) p.set('category_id', categoryId);
+    areaIds.forEach((id) => p.append('area_id', String(id)));
+    categoryIds.forEach((id) => p.append('category_id', String(id)));
     return p.toString();
-  }, [days, areaId, categoryId]);
+  }, [days, areaIds.join(','), categoryIds.join(',')]);
 
   async function load() {
     setLoading(true);
     try {
-      const [{ areas: a }, { categories: c }, s, t, ba, bc, ap, { headcount: hc }] = await Promise.all([
+      const [{ areas: a }, { categories: c }, s, t, ba, bc, ap, { headcount: hc }, cov] = await Promise.all([
         api.get('/api/areas'),
         api.get('/api/categories'),
         api.get(`/api/dashboard/summary?${queryStr}`),
@@ -161,6 +207,7 @@ export default function Analytics() {
         api.get(`/api/dashboard/by-category?${queryStr}`),
         api.get('/api/plans/active').catch(() => ({ plans: [] })),
         api.get('/api/headcount/today').catch(() => ({ headcount: null })),
+        api.get(`/api/dashboard/coverage?date=${todayStr()}`).catch(() => ({ date: null, areas: [] })),
       ]);
       setAreas(a);
       setCategories(c);
@@ -168,6 +215,8 @@ export default function Analytics() {
       setTrend(t.series);
       setByArea(ba.areas);
       setByCategory(bc.categories);
+      setCoverage(cov.areas);
+      setCoverageDate(cov.date);
       setActivePlans(ap.plans || []);
       setHeadcountToday(hc);
       setHcInput(hc ? String(hc.people_count) : '');
@@ -180,7 +229,8 @@ export default function Analytics() {
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [queryStr]);
 
-  const filtersActive = areaId || categoryId;
+  const filtersActive = areaIds.length > 0 || categoryIds.length > 0;
+  const registeredAreas = coverage.filter((a) => a.has_data).length;
 
   return (
     <div className="analytics">
@@ -238,36 +288,79 @@ export default function Analytics() {
           ))}
         </div>
         <div className="filter-toggles">
-          <select
-            value={areaId}
-            onChange={(e) => setAreaId(e.target.value)}
-            aria-label="Filtrar por área"
-          >
-            <option value="">Todas las áreas</option>
-            {areas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-          </select>
-          <select
-            value={categoryId}
-            onChange={(e) => setCategoryId(e.target.value)}
-            aria-label="Filtrar por categoría"
-          >
-            <option value="">Todas las categorías</option>
-            {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
+          <div className="metric-toggle" role="group" aria-label="Unidad de medida">
+            <button
+              type="button"
+              className={`metric-btn${metric === 'lb' ? ' active' : ''}`}
+              onClick={() => setMetric('lb')}
+              title="Ver valores en libras"
+            >
+              <Scale size={13} /> Libras
+            </button>
+            <button
+              type="button"
+              className={`metric-btn${metric === 'pct' ? ' active' : ''}`}
+              onClick={() => setMetric('pct')}
+              title="Ver valores en porcentajes"
+            >
+              % Porcentaje
+            </button>
+          </div>
+          <CheckboxMultiSelect
+            options={areas}
+            selected={areaIds}
+            onChange={setAreaIds}
+            allLabel="Todas las áreas"
+          />
+          <CheckboxMultiSelect
+            options={categories}
+            selected={categoryIds}
+            onChange={setCategoryIds}
+            allLabel="Todas las categorías"
+            icon={Tag}
+          />
           {filtersActive && (
             <button
               className="filter-clear"
-              onClick={() => { setAreaId(''); setCategoryId(''); }}
+              onClick={() => { setAreaIds([]); setCategoryIds([]); }}
               title="Limpiar filtros"
             >
               <X size={14} /> Limpiar
             </button>
           )}
-          <button className="export-btn" onClick={exportCsv} title="Descargar CSV">
-            <Download size={14} /> CSV
+          <button className="export-btn" onClick={exportReport} title="Descargar reporte Excel">
+            <FileSpreadsheet size={14} /> Excel
           </button>
         </div>
       </div>
+
+      {/* Cobertura de hoy: áreas que aún no registraron */}
+      {coverage.length > 0 && (
+        <div className="coverage-card">
+          <div className="coverage-card-header">
+            <div>
+              <strong>Cobertura de hoy</strong>
+              <small className="muted">{coverageDate ? fmtDate(coverageDate) : ''}</small>
+            </div>
+            <span className={`coverage-count${registeredAreas === coverage.length ? ' ok' : ''}`}>
+              {registeredAreas}/{coverage.length} áreas registraron
+            </span>
+          </div>
+          <div className="coverage-chips">
+            {coverage.map((a) => (
+              <span
+                key={a.id}
+                className={`coverage-chip${a.has_data ? ' done' : ''}`}
+                style={{ '--coverage-color': a.color }}
+              >
+                <span className="dot" />
+                {a.name}
+                {a.has_data ? <Check size={12} /> : <AlertCircle size={12} />}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {loading || !summary ? (
         <p className="muted">Cargando…</p>
@@ -321,42 +414,108 @@ export default function Analytics() {
           {/* Tendencia */}
           <div className="chart-card">
             <div className="chart-header">
-              <h3>Tendencia diaria</h3>
-              <span className="chart-sub">lb totales y lb/persona por día</span>
+              <div>
+                <h3>Tendencia diaria</h3>
+                <span className="chart-sub">
+                  {metric === 'lb' ? 'lb totales y lb/persona por día' : '% del total por día'}
+                </span>
+              </div>
+              {metric === 'lb' && (
+                <label className="goal-field">
+                  <span>Meta diaria</span>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    min="0"
+                    placeholder="lb/día"
+                    value={dailyGoal}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setDailyGoal(v);
+                      if (v !== '') localStorage.setItem('jdl_daily_goal', v);
+                      else localStorage.removeItem('jdl_daily_goal');
+                    }}
+                  />
+                </label>
+              )}
             </div>
             <ResponsiveContainer width="100%" height={240}>
-              <LineChart data={trend} margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.grid} />
-                <XAxis
-                  dataKey="date"
-                  tickFormatter={(d) => fmtDateShort(d).slice(0, 5)}
-                  tick={{ fontSize: 11, fill: chartTheme.text }}
-                  stroke={chartTheme.text}
-                />
-                <YAxis yAxisId="lb" tick={{ fontSize: 11, fill: chartTheme.text }} stroke={chartTheme.text} />
-                <YAxis yAxisId="ratio" orientation="right" tick={{ fontSize: 11, fill: chartTheme.text }} stroke={chartTheme.text} />
-                <Tooltip content={<ChartTooltip valueFmt={(v) => fmtNumber(v, 2)} />} />
-                <Line
-                  yAxisId="lb"
-                  type="monotone"
-                  dataKey="pounds"
-                  name="lb total"
-                  stroke={chartTheme.line}
-                  strokeWidth={2.5}
-                  dot={false}
-                  activeDot={{ r: 4 }}
-                />
-                <Line
-                  yAxisId="ratio"
-                  type="monotone"
-                  dataKey="lb_persona"
-                  name="lb/persona"
-                  stroke={chartTheme.line2}
-                  strokeWidth={2}
-                  strokeDasharray="4 3"
-                  dot={false}
-                />
-              </LineChart>
+              {metric === 'lb' ? (
+                <LineChart data={trend} margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.grid} />
+                  <XAxis
+                    dataKey="date"
+                    tickFormatter={(d) => fmtDateShort(d).slice(0, 5)}
+                    tick={{ fontSize: 11, fill: chartTheme.text }}
+                    stroke={chartTheme.text}
+                  />
+                  <YAxis yAxisId="lb" tick={{ fontSize: 11, fill: chartTheme.text }} stroke={chartTheme.text} />
+                  <YAxis yAxisId="ratio" orientation="right" tick={{ fontSize: 11, fill: chartTheme.text }} stroke={chartTheme.text} />
+                  <Tooltip content={<ChartTooltip valueFmt={(v) => fmtNumber(v, 2)} />} />
+                  <Line
+                    yAxisId="lb"
+                    type="monotone"
+                    dataKey="pounds"
+                    name="Libras totales"
+                    stroke={chartTheme.line}
+                    strokeWidth={2.5}
+                    dot={false}
+                    activeDot={{ r: 4 }}
+                  />
+                  <Line
+                    yAxisId="ratio"
+                    type="monotone"
+                    dataKey="lb_persona"
+                    name="Libras por persona"
+                    stroke={chartTheme.line2}
+                    strokeWidth={2}
+                    strokeDasharray="4 3"
+                    dot={false}
+                  />
+                  {Number(dailyGoal) > 0 && (
+                    <ReferenceLine
+                      yAxisId="lb"
+                      y={Number(dailyGoal)}
+                      stroke="#f59e0b"
+                      strokeDasharray="4 3"
+                      label={{
+                        value: `Meta ${fmtNumber(dailyGoal, 0)} lb`,
+                        position: 'insideTopRight',
+                        fontSize: 11,
+                        fill: chartTheme.text,
+                      }}
+                    />
+                  )}
+                </LineChart>
+              ) : (
+                <LineChart data={trendData} margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.grid} />
+                  <XAxis
+                    dataKey="date"
+                    tickFormatter={(d) => fmtDateShort(d).slice(0, 5)}
+                    tick={{ fontSize: 11, fill: chartTheme.text }}
+                    stroke={chartTheme.text}
+                  />
+                  <YAxis
+                    yAxisId="pct"
+                    domain={[0, 100]}
+                    tickFormatter={(v) => `${v}%`}
+                    tick={{ fontSize: 11, fill: chartTheme.text }}
+                    stroke={chartTheme.text}
+                  />
+                  <Tooltip content={<ChartTooltip valueFmt={(v) => `${fmtNumber(v, 2)}% del total`} />} />
+                  <Line
+                    yAxisId="pct"
+                    type="monotone"
+                    dataKey="pct_total"
+                    name="% del total"
+                    stroke={chartTheme.line}
+                    strokeWidth={2.5}
+                    dot={false}
+                    activeDot={{ r: 4 }}
+                  />
+                </LineChart>
+              )}
             </ResponsiveContainer>
           </div>
 
@@ -370,22 +529,27 @@ export default function Analytics() {
               <ResponsiveContainer width="100%" height={240}>
                 <PieChart>
                   <Pie
-                    data={byCategory.filter((c) => c.pounds > 0)}
-                    dataKey="pounds"
+                    data={catData}
+                    dataKey={metric === 'lb' ? 'pounds' : 'pct'}
                     nameKey="name"
                     innerRadius={45}
                     outerRadius={80}
                     paddingAngle={2}
                   >
-                    {byCategory.filter((c) => c.pounds > 0).map((c) => (
+                    {catData.map((c) => (
                       <Cell key={c.id} fill={c.color} />
                     ))}
                   </Pie>
-                  <Tooltip content={<ChartTooltip valueFmt={(v) => `${fmtNumber(v, 1)} lb`} />} />
+                  <Tooltip
+                    content={metric === 'lb'
+                      ? <ChartTooltip valueFmt={(v) => `${fmtNumber(v, 1)} lb`} withPct />
+                      : <ChartTooltip valueFmt={(v) => `${fmtNumber(v, 1)}%`} />}
+                  />
                   <Legend
                     verticalAlign="bottom"
                     iconType="circle"
                     wrapperStyle={{ fontSize: 11 }}
+                    formatter={(value, entry) => `${value} · ${fmtNumber(entry.payload?.pct ?? 0, 1)}%`}
                   />
                 </PieChart>
               </ResponsiveContainer>
@@ -393,17 +557,31 @@ export default function Analytics() {
 
             <div className="chart-card">
               <div className="chart-header">
-                <h3>Top áreas</h3>
-                <span className="chart-sub">libras acumuladas</span>
+                <h3>Principales áreas</h3>
+                <span className="chart-sub">
+                  {metric === 'lb' ? 'libras y % del total' : '% del total'}
+                </span>
               </div>
               <ResponsiveContainer width="100%" height={240}>
                 <BarChart
-                  data={byArea}
+                  data={areaData}
                   layout="vertical"
-                  margin={{ top: 4, right: 16, left: 0, bottom: 0 }}
+                  margin={{ top: metric === 'lb' ? 16 : 4, right: 16, left: 0, bottom: 0 }}
+                  barGap={2}
                 >
                   <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.grid} />
-                  <XAxis type="number" tick={{ fontSize: 11, fill: chartTheme.text }} stroke={chartTheme.text} />
+                  {metric === 'lb' && (
+                    <XAxis type="number" xAxisId="lb" tick={{ fontSize: 11, fill: chartTheme.text }} stroke={chartTheme.text} />
+                  )}
+                  <XAxis
+                    type="number"
+                    xAxisId="pct"
+                    orientation={metric === 'lb' ? 'top' : 'bottom'}
+                    domain={[0, 100]}
+                    tickFormatter={(v) => `${v}%`}
+                    tick={{ fontSize: 10, fill: chartTheme.text }}
+                    stroke={chartTheme.text}
+                  />
                   <YAxis
                     type="category"
                     dataKey="name"
@@ -411,12 +589,35 @@ export default function Analytics() {
                     tick={{ fontSize: 11, fill: chartTheme.text }}
                     stroke={chartTheme.text}
                   />
-                  <Tooltip content={<ChartTooltip valueFmt={(v) => `${fmtNumber(v, 1)} lb`} />} />
-                  <Bar dataKey="pounds" radius={[0, 6, 6, 0]}>
-                    {byArea.map((a) => (
-                      <Cell key={a.id} fill={a.color} />
-                    ))}
+                  <Tooltip content={<AreaTooltip metric={metric} />} />
+                  {metric === 'lb' && (
+                    <Bar dataKey="pounds" xAxisId="lb" name="Libras" radius={[0, 6, 6, 0]}>
+                      {areaData.map((a) => (
+                        <Cell key={a.id} fill={a.color} />
+                      ))}
+                    </Bar>
+                  )}
+                  <Bar
+                    dataKey="pct"
+                    xAxisId="pct"
+                    name={metric === 'lb' ? '% del total' : 'Porcentaje'}
+                    radius={[0, 6, 6, 0]}
+                    fill={chartTheme.bar2}
+                  >
+                    <LabelList
+                      dataKey="pct"
+                      position="right"
+                      formatter={(v) => (v > 0 ? `${fmtNumber(v, 1)}%` : '')}
+                      style={{ fontSize: 11, fill: chartTheme.text }}
+                    />
                   </Bar>
+                  {metric === 'lb' && (
+                    <Legend
+                      verticalAlign="top"
+                      iconType="circle"
+                      wrapperStyle={{ fontSize: 11 }}
+                    />
+                  )}
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -429,14 +630,18 @@ export default function Analytics() {
                 <div className="highlight-card" style={{ borderLeft: `5px solid ${summary.kpis.top_area.color}` }}>
                   <span>Área con más desechos</span>
                   <strong>{summary.kpis.top_area.name}</strong>
-                  <small>{fmtNumber(summary.kpis.top_area.pounds)} lb</small>
+                  <small>
+                    {fmtNumber(summary.kpis.top_area.pounds)} lb · {fmtNumber(sharePct(summary.kpis.top_area.pounds, summary.kpis.total_pounds), 1)}% del total
+                  </small>
                 </div>
               )}
               {summary.kpis.top_category && (
                 <div className="highlight-card" style={{ borderLeft: `5px solid ${summary.kpis.top_category.color}` }}>
                   <span>Categoría que más pesa</span>
                   <strong>{summary.kpis.top_category.name}</strong>
-                  <small>{fmtNumber(summary.kpis.top_category.pounds)} lb</small>
+                  <small>
+                    {fmtNumber(summary.kpis.top_category.pounds)} lb · {fmtNumber(sharePct(summary.kpis.top_category.pounds, summary.kpis.total_pounds), 1)}% del total
+                  </small>
                 </div>
               )}
             </div>

@@ -20,9 +20,8 @@ const AREAS = [
 ];
 
 const DAYS = 30;
+const { isoDay, addDays } = require('./utils.cjs');
 
-const isoDay = (d) => d.toISOString().slice(0, 10);
-const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
 const rand = (min, max) => Math.random() * (max - min) + min;
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 

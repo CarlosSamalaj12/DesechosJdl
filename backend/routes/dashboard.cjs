@@ -7,9 +7,15 @@ const router = express.Router();
 router.use(requireAuth);
 
 const dateOnly = /^\d{4}-\d{2}-\d{2}$/;
-const isoDay = (d) => d.toISOString().slice(0, 10);
-const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
-const daysBetween = (a, b) => Math.round((new Date(b) - new Date(a)) / 86400000) + 1;
+const { isoDay, addDays, parseLocal, todayLocal } = require('../utils.cjs');
+const daysBetween = (a, b) => Math.round((parseLocal(b) - parseLocal(a)) / 86400000) + 1;
+
+// Acepta ?area_id=1&area_id=2 o ?area_id=1,2 (repetidos o separados por coma)
+function parseIds(raw) {
+  if (raw === undefined || raw === null || raw === '') return [];
+  const list = Array.isArray(raw) ? raw : String(raw).split(',');
+  return list.map((v) => Number(v)).filter((n) => Number.isInteger(n) && n > 0);
+}
 
 function parseRange(req) {
   const today = new Date();
@@ -20,27 +26,33 @@ function parseRange(req) {
     ? isoDay(addDays(today, -(daysParam - 1)))
     : isoDay(addDays(today, -29));
   const from = req.query.from && dateOnly.test(req.query.from) ? req.query.from : defaultFrom;
-  const areaId = req.query.area_id ? Number(req.query.area_id) : null;
-  const categoryId = req.query.category_id ? Number(req.query.category_id) : null;
-  return { from, to, areaId, categoryId, days: daysBetween(from, to) };
+  const areaIds = parseIds(req.query.area_id);
+  const categoryIds = parseIds(req.query.category_id);
+  return { from, to, areaIds, categoryIds, days: daysBetween(from, to) };
 }
 
-function recordWhere({ areaId, categoryId }) {
+function recordWhere({ areaIds, categoryIds }) {
   const parts = ['r.record_date BETWEEN ? AND ?'];
   const params = [];
-  if (areaId) { parts.push('r.area_id = ?'); }
-  if (categoryId) { parts.push('r.category_id = ?'); }
+  if (areaIds && areaIds.length) {
+    parts.push(`r.area_id IN (${areaIds.map(() => '?').join(', ')})`);
+    params.push(...areaIds);
+  }
+  if (categoryIds && categoryIds.length) {
+    parts.push(`r.category_id IN (${categoryIds.map(() => '?').join(', ')})`);
+    params.push(...categoryIds);
+  }
   return { sql: parts.join(' AND '), params };
 }
 
 // ── SUMMARY (KPIs) ─────────────────────────────
 router.get('/summary', async (req, res) => {
-  const { from, to, areaId, categoryId, days } = parseRange(req);
-  const { sql: filtSql, params: filtParams } = recordWhere({ areaId, categoryId });
+  const { from, to, areaIds, categoryIds, days } = parseRange(req);
+  const { sql: filtSql, params: filtParams } = recordWhere({ areaIds, categoryIds });
 
   // Rango anterior equivalente (mismo largo, hacia atrás)
-  const prevFrom = isoDay(addDays(new Date(from), -days));
-  const prevTo = isoDay(addDays(new Date(to), -days));
+  const prevFrom = isoDay(addDays(parseLocal(from), -days));
+  const prevTo = isoDay(addDays(parseLocal(to), -days));
 
   // Total pounds en rango actual
   const total = await one(
@@ -50,10 +62,20 @@ router.get('/summary', async (req, res) => {
   );
 
   // Total pounds en rango anterior
+  const prevParams = [prevFrom, prevTo];
+  let prevWhere = '';
+  if (areaIds.length) {
+    prevWhere += ` AND r.area_id IN (${areaIds.map(() => '?').join(', ')})`;
+    prevParams.push(...areaIds);
+  }
+  if (categoryIds.length) {
+    prevWhere += ` AND r.category_id IN (${categoryIds.map(() => '?').join(', ')})`;
+    prevParams.push(...categoryIds);
+  }
   const prevTotal = await one(
     `SELECT COALESCE(SUM(pounds), 0) AS pounds
-     FROM waste_records r WHERE r.record_date BETWEEN ? AND ? ${areaId ? 'AND r.area_id = ?' : ''} ${categoryId ? 'AND r.category_id = ?' : ''}`,
-    [prevFrom, prevTo, ...(areaId ? [areaId] : []), ...(categoryId ? [categoryId] : [])],
+     FROM waste_records r WHERE r.record_date BETWEEN ? AND ?${prevWhere}`,
+    prevParams,
   );
 
   // Headcount del rango
@@ -64,25 +86,27 @@ router.get('/summary', async (req, res) => {
   );
 
   // Top área
+  const areaFilterSql = areaIds.length ? `WHERE a.id IN (${areaIds.map(() => '?').join(', ')})` : '';
   const topArea = await one(
     `SELECT a.id, a.name, a.color, COALESCE(SUM(r.pounds), 0) AS pounds
      FROM waste_areas a
      LEFT JOIN waste_records r
        ON r.area_id = a.id AND r.record_date BETWEEN ? AND ?
-     ${areaId ? 'WHERE a.id = ?' : ''}
+     ${areaFilterSql}
      GROUP BY a.id ORDER BY pounds DESC LIMIT 1`,
-    [from, to, ...(areaId ? [areaId] : [])],
+    [from, to, ...areaIds],
   );
 
   // Top categoría
+  const catFilterSql = categoryIds.length ? `WHERE c.id IN (${categoryIds.map(() => '?').join(', ')})` : '';
   const topCat = await one(
     `SELECT c.id, c.name, c.color, COALESCE(SUM(r.pounds), 0) AS pounds
      FROM waste_categories c
      LEFT JOIN waste_records r
        ON r.category_id = c.id AND r.record_date BETWEEN ? AND ?
-     ${categoryId ? 'WHERE c.id = ?' : ''}
+     ${catFilterSql}
      GROUP BY c.id ORDER BY pounds DESC LIMIT 1`,
-    [from, to, ...(categoryId ? [categoryId] : [])],
+    [from, to, ...categoryIds],
   );
 
   const pounds = Number(total.pounds || 0);
@@ -113,15 +137,21 @@ router.get('/summary', async (req, res) => {
 
 // ── TREND (serie diaria) ────────────────────────
 router.get('/trend', async (req, res) => {
-  const { from, to, areaId, categoryId, days } = parseRange(req);
+  const { from, to, areaIds, categoryIds, days } = parseRange(req);
   // Limitar a 365 días
   const cappedDays = Math.min(days, 365);
-  const realTo = isoDay(addDays(new Date(from), cappedDays - 1));
+  const realTo = isoDay(addDays(parseLocal(from), cappedDays - 1));
 
   const params = [from, realTo];
   let where = 'r.record_date BETWEEN ? AND ?';
-  if (areaId)     { where += ' AND r.area_id = ?';     params.push(areaId); }
-  if (categoryId) { where += ' AND r.category_id = ?'; params.push(categoryId); }
+  if (areaIds.length) {
+    where += ` AND r.area_id IN (${areaIds.map(() => '?').join(', ')})`;
+    params.push(...areaIds);
+  }
+  if (categoryIds.length) {
+    where += ` AND r.category_id IN (${categoryIds.map(() => '?').join(', ')})`;
+    params.push(...categoryIds);
+  }
 
   const records = await query(
     `SELECT record_date, SUM(pounds) AS pounds
@@ -147,7 +177,7 @@ router.get('/trend', async (req, res) => {
   }
 
   const series = [];
-  const start = new Date(from);
+  const start = parseLocal(from);
   for (let i = 0; i < cappedDays; i++) {
     const d = isoDay(addDays(start, i));
     const pounds = byDate.get(d) || 0;
@@ -163,12 +193,40 @@ router.get('/trend', async (req, res) => {
   res.json({ range: { from, to: realTo, days: cappedDays }, series });
 });
 
+// ── COVERAGE (quién registró hoy) ──────────────
+// GET /api/dashboard/coverage?date=YYYY-MM-DD (por defecto: hoy)
+// Devuelve por área si tiene registros en esa fecha.
+router.get('/coverage', async (req, res) => {
+  const date = req.query.date && dateOnly.test(req.query.date) ? req.query.date : todayLocal();
+  const areas = await query(
+    `SELECT a.id, a.name, a.color,
+            EXISTS(SELECT 1 FROM waste_records r
+                   WHERE r.area_id = a.id AND r.record_date = ?) AS has_data
+     FROM waste_areas a
+     WHERE a.is_active = 1
+     ORDER BY a.sort_order ASC, a.name ASC`,
+    [date],
+  );
+  res.json({
+    date,
+    areas: areas.map((a) => ({
+      id: a.id,
+      name: a.name,
+      color: a.color,
+      has_data: Boolean(a.has_data),
+    })),
+  });
+});
+
 // ── BY AREA ────────────────────────────────────
 router.get('/by-area', async (req, res) => {
-  const { from, to, areaId } = parseRange(req);
+  const { from, to, areaIds } = parseRange(req);
   const params = [from, to];
   let where = 'r.record_date BETWEEN ? AND ?';
-  if (areaId) { where += ' AND r.area_id = ?'; params.push(areaId); }
+  if (areaIds.length) {
+    where += ` AND r.area_id IN (${areaIds.map(() => '?').join(', ')})`;
+    params.push(...areaIds);
+  }
 
   const hcTotal = await one(
     'SELECT COALESCE(SUM(people_count), 0) AS people FROM daily_headcount WHERE record_date BETWEEN ? AND ?',
@@ -202,11 +260,17 @@ router.get('/by-area', async (req, res) => {
 
 // ── BY CATEGORY ────────────────────────────────
 router.get('/by-category', async (req, res) => {
-  const { from, to, areaId, categoryId } = parseRange(req);
+  const { from, to, areaIds, categoryIds } = parseRange(req);
   const params = [from, to];
   let where = 'r.record_date BETWEEN ? AND ?';
-  if (areaId)     { where += ' AND r.area_id = ?';     params.push(areaId); }
-  if (categoryId) { where += ' AND r.category_id = ?'; params.push(categoryId); }
+  if (areaIds.length) {
+    where += ` AND r.area_id IN (${areaIds.map(() => '?').join(', ')})`;
+    params.push(...areaIds);
+  }
+  if (categoryIds.length) {
+    where += ` AND r.category_id IN (${categoryIds.map(() => '?').join(', ')})`;
+    params.push(...categoryIds);
+  }
 
   const rows = await query(
     `SELECT c.id, c.name, c.color, c.icon, COALESCE(SUM(r.pounds), 0) AS pounds

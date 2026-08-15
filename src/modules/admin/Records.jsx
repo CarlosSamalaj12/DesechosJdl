@@ -1,12 +1,13 @@
 // src/modules/admin/Records.jsx — tabla completa de registros con filtros
 import { useEffect, useState, useMemo } from 'react';
-import { ClipboardList, X, Download, Trash2, Pencil, Calendar } from 'lucide-react';
+import { ClipboardList, X, FileSpreadsheet, Trash2, Pencil, Calendar, Tag } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { api, getToken } from '../../api/client.js';
 import Modal from '../../shared/Modal.jsx';
 import { BtnPrimary, BtnGhost, BtnDanger } from '../../shared/Buttons.jsx';
 import { fmtDate, fmtDateShort, fmtNumber } from '../../utils/format.js';
 import { useAuth } from '../../auth/AuthContext.jsx';
+import CheckboxMultiSelect from '../../shared/CheckboxMultiSelect.jsx';
 import './Records.css';
 
 const isoDay = (d) => {
@@ -25,20 +26,20 @@ export default function Records() {
   // filtros
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
-  const [areaId, setAreaId] = useState('');
-  const [categoryId, setCategoryId] = useState('');
+  const [areaIds, setAreaIds] = useState([]);
+  const [categoryIds, setCategoryIds] = useState([]);
 
-  const filtersActive = from || to || areaId || categoryId;
+  const filtersActive = from || to || areaIds.length > 0 || categoryIds.length > 0;
 
   const queryStr = useMemo(() => {
     const p = new URLSearchParams();
     if (from) p.set('from', from);
     if (to) p.set('to', to);
-    if (areaId) p.set('area_id', areaId);
-    if (categoryId) p.set('category_id', categoryId);
+    areaIds.forEach((id) => p.append('area_id', String(id)));
+    categoryIds.forEach((id) => p.append('category_id', String(id)));
     p.set('limit', '500');
     return p.toString();
-  }, [from, to, areaId, categoryId]);
+  }, [from, to, areaIds.join(','), categoryIds.join(',')]);
 
   async function load() {
     setLoading(true);
@@ -61,7 +62,7 @@ export default function Records() {
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [queryStr]);
 
   function clearFilters() {
-    setFrom(''); setTo(''); setAreaId(''); setCategoryId('');
+    setFrom(''); setTo(''); setAreaIds([]); setCategoryIds([]);
   }
 
   function setToday() {
@@ -86,13 +87,13 @@ export default function Records() {
     setTo(isoDay(last));
   }
 
-  async function exportCsv() {
+  async function exportReport() {
     const p = new URLSearchParams();
     if (from) p.set('from', from);
     if (to) p.set('to', to);
-    if (areaId) p.set('area_id', areaId);
-    if (categoryId) p.set('category_id', categoryId);
-    const res = await fetch(`/api/records/export/csv?${p}`, {
+    areaIds.forEach((id) => p.append('area_id', String(id)));
+    categoryIds.forEach((id) => p.append('category_id', String(id)));
+    const res = await fetch(`/api/records/export/report?${p}`, {
       headers: { Authorization: `Bearer ${getToken()}` },
     });
     if (!res.ok) { toast.error('Error al exportar'); return; }
@@ -100,12 +101,12 @@ export default function Records() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `desperdicios_${from || 'todo'}_${to || 'todo'}.csv`;
+    a.download = `reporte_desperdicios_${from || 'todo'}_${to || 'todo'}.xls`;
     document.body.appendChild(a);
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
-    toast.success('CSV descargado');
+    toast.success('Reporte Excel descargado');
   }
 
   async function removeRecord(rec) {
@@ -132,7 +133,7 @@ export default function Records() {
     <div className="records-page">
       <div className="records-header">
         <h2><ClipboardList size={18} /> Registros</h2>
-        <BtnExport onClick={exportCsv} />
+        <BtnExport onClick={exportReport} />
       </div>
 
       {/* filtros */}
@@ -146,20 +147,20 @@ export default function Records() {
             <span>Hasta</span>
             <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
           </label>
-          <label className="filter-field">
-            <span>Área</span>
-            <select value={areaId} onChange={(e) => setAreaId(e.target.value)}>
-              <option value="">Todas</option>
-              {areas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-            </select>
-          </label>
-          <label className="filter-field">
-            <span>Categoría</span>
-            <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
-              <option value="">Todas</option>
-              {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-          </label>
+          <div className="filter-field">
+            <span>Áreas</span>
+            <CheckboxMultiSelect options={areas} selected={areaIds} onChange={setAreaIds} allLabel="Todas las áreas" />
+          </div>
+          <div className="filter-field">
+            <span>Categorías</span>
+            <CheckboxMultiSelect
+              options={categories}
+              selected={categoryIds}
+              onChange={setCategoryIds}
+              allLabel="Todas las categorías"
+              icon={Tag}
+            />
+          </div>
         </div>
 
         <div className="filter-presets">
@@ -387,8 +388,8 @@ function RecordEditModal({ record, onClose, onSaved, onDeleted }) {
 
 function BtnExport({ onClick }) {
   return (
-    <button className="export-btn" onClick={onClick} title="Descargar CSV">
-      <Download size={14} /> CSV
+    <button className="export-btn" onClick={onClick} title="Descargar reporte Excel">
+      <FileSpreadsheet size={14} /> Excel
     </button>
   );
 }

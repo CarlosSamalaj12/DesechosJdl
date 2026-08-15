@@ -22,4 +22,35 @@ function asyncHandler(fn) {
   };
 }
 
-module.exports = { normalizeBigInts, asyncHandler };
+// ── Fechas en horario LOCAL del servidor ────────────────────────────
+// El sistema opera con la fecha del hotel (no UTC): si el backend usara
+// toISOString() (UTC), en zonas GMT-5/-6 a partir de las 18-19h locales
+// "hoy" se convertiría en "mañana" y los rangos se correrían un día.
+// Estas helpers siempre usan el reloj local de la máquina.
+
+// Date -> 'YYYY-MM-DD' en horario local
+function isoDay(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+// 'YYYY-MM-DD' -> Date local (medianoche local, NO UTC)
+function parseLocal(s) {
+  const [y, m, d] = String(s).slice(0, 10).split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function addDays(d, n) {
+  const x = new Date(d);
+  x.setDate(x.getDate() + n);
+  return x;
+}
+
+// Fecha de hoy en horario local
+function todayLocal() {
+  return isoDay(new Date());
+}
+
+module.exports = { normalizeBigInts, asyncHandler, isoDay, parseLocal, addDays, todayLocal };
